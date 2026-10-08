@@ -14,6 +14,10 @@
  * However later that could be toggled with a flag, who knows.
  */
 #include <stdio.h>
+#include <sys/time.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <linux/input.h>
 
 /*
  * SDL scancode definitions - Used for converting platform key input to sdl key input
@@ -168,7 +172,7 @@ typedef enum SDL_Scancode {
     SDL_SCANCODE_INTERNATIONAL9 = 143,
     SDL_SCANCODE_LANG1 = 144,
     SDL_SCANCODE_LANG2 = 145,
-    SDL_SCANCODE_LANG3 = 146
+    SDL_SCANCODE_LANG3 = 146,
     SDL_SCANCODE_LANG4 = 147,
     SDL_SCANCODE_LANG5 = 148,
     SDL_SCANCODE_LANG6 = 149,
@@ -281,6 +285,26 @@ typedef enum SDL_Scancode {
     SDL_SCANCODE_COUNT = 512
 } SDL_Scancode;
 
-void main() {
- printf("hello world\n");
+int main() {
+
+ // TODO: Find keyboard from ID's.
+ int fd = open("/dev/input/event3", O_RDONLY);
+ if (fd == -1) {
+  printf("Unable to access keyboard\n");
+  return(-1);
+ }
+
+ printf("File Descriptor: %d \n", fd);
+
+ int running = 1;
+ while (running) {
+  struct input_event ev;
+  read(fd, &ev, sizeof(struct input_event));
+  if (ev.code == KEY_ESC && ev.value == 1) {
+    printf("escaped \n");
+    running = 0;
+  }
+ }
+
+ return 1;
 }
