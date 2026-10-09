@@ -285,6 +285,56 @@ typedef enum SDL_Scancode {
     SDL_SCANCODE_COUNT = 512
 } SDL_Scancode;
 
+#define KEY_RELEASED 0
+#define KEY_PRESSED 1
+#define KEY_AUTOREPEAT 2
+
+
+#define NUM_OF_MODIFIERS 6
+enum modifier_position {
+ CONTROL,
+ ALT,
+ SHIFT,
+};
+
+struct modifier_storage {
+ int modifiers[3];
+};
+
+int handle_modifiers(unsigned short value, unsigned short code, struct modifier_storage *ms) {
+
+ int result = 0;
+
+ switch (code) {
+   case KEY_LEFTCTRL: {
+      ms->modifiers[CONTROL] = value;
+      result = 1;
+   } break;
+   case KEY_LEFTALT: {
+      ms->modifiers[ALT] = value;
+      result = 1;
+   } break;
+   case KEY_LEFTSHIFT: {
+      ms->modifiers[SHIFT] = value;
+      result = 1;
+   } break;
+   case KEY_RIGHTCTRL: {
+      ms->modifiers[CONTROL] = value;
+      result = 1;
+   } break;
+   case KEY_RIGHTALT: {
+      ms->modifiers[ALT] = value;
+      result = 1;
+   } break;
+   case KEY_RIGHTSHIFT: {
+      ms->modifiers[SHIFT] = value;
+      result = 1;
+   } break;
+ }
+
+ return result;
+}
+
 int main() {
 
  // TODO: Find keyboard from ID's.
@@ -296,15 +346,74 @@ int main() {
 
  printf("File Descriptor: %d \n", fd);
 
+ struct modifier_storage ms;
+ ms.modifiers[CONTROL] = 0;
+ ms.modifiers[ALT] = 0;
+ ms.modifiers[SHIFT] = 0;
+
  int running = 1;
  while (running) {
   struct input_event ev;
   read(fd, &ev, sizeof(struct input_event));
-  if (ev.code == KEY_ESC && ev.value == 1) {
+
+  if (ev.type == EV_KEY) {
+   switch (ev.value) {
+    case (KEY_RELEASED): {
+     handle_modifiers(ev.value, ev.code, &ms);
+    } break;
+    case(KEY_PRESSED): {
+     handle_modifiers(ev.value, ev.code, &ms);
+    } break;
+    case(KEY_AUTOREPEAT): {
+
+    } break;
+    default: {
+      printf("Unhandled key value. What do?\n");
+    } break;
+   }
+  }
+  
+  // \033 is an octal escape.
+  printf("\033[2J\033[H");
+  printf("\033[0m");
+  printf("| Control: ");
+  if (ms.modifiers[CONTROL]) {
+   printf("\033[32m");
+   printf("█ ");
+  } else {
+   printf("\033[31m");
+   printf("░ ");
+  }
+
+  printf("\033[0m");
+  printf("| Alt: ");
+  if (ms.modifiers[ALT]) {
+   printf("\033[32m");
+   printf("█ ");
+  } else {
+   printf("\033[31m");
+   printf("░ ");
+  }
+
+  printf("\033[0m");
+  printf("| Shift: ");
+  if (ms.modifiers[SHIFT]) {
+   printf("\033[32m");
+   printf("█ ");
+  } else {
+   printf("\033[31m");
+   printf("░ ");
+  }
+  printf("\033[0m");
+  printf("|\n");
+
+  if (ev.code == KEY_ESC && ev.value == 1 && ms.modifiers[SHIFT]) {
     printf("escaped \n");
     running = 0;
   }
  }
+
+ printf("we broke\n");
 
  return 1;
 }
