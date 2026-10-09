@@ -335,6 +335,45 @@ int handle_modifiers(unsigned short value, unsigned short code, struct modifier_
  return result;
 }
 
+void draw_tui(struct modifier_storage *ms, struct input_event *ev) {
+  // \033 is an octal escape.
+  printf("\033[2J\033[H");
+  printf("\033[0m");
+  printf("| Control: ");
+  if (ms->modifiers[CONTROL]) {
+    printf("\033[32m");
+    printf("█ ");
+  } else {
+    printf("\033[31m");
+    printf("░ ");
+  }
+
+  printf("\033[0m");
+  printf("| Alt: ");
+  if (ms->modifiers[ALT]) {
+    printf("\033[32m");
+    printf("█ ");
+  } else {
+    printf("\033[31m");
+    printf("░ ");
+  }
+
+  printf("\033[0m");
+  printf("| Shift: ");
+  if (ms->modifiers[SHIFT]) {
+    printf("\033[32m");
+    printf("█ ");
+  } else {
+    printf("\033[31m");
+    printf("░ ");
+  }
+  printf("\033[0m");
+  printf("| Recent Valid | Key: %d | State %s \n", ev->code, ev->value ? "Pressed" : "Released");
+
+}
+
+#define DRAW_TUI 1
+
 int main() {
 
  // TODO: Find keyboard from ID's.
@@ -352,17 +391,43 @@ int main() {
  ms.modifiers[SHIFT] = 0;
 
  int running = 1;
+ // Note: This isn't really needed for operations, only useful for rendering.
+ struct input_event recent_key = {0};
  while (running) {
-  struct input_event ev;
+  struct input_event ev = {0};
   read(fd, &ev, sizeof(struct input_event));
+  
+  if (DRAW_TUI) {
+   draw_tui(&ms, &recent_key);
+  } else {
+   if (ev.type == EV_KEY) {
+    if (ev.value == KEY_PRESSED) {
+     printf("pressed: ev@code %d | ev@type %d\n", ev.code, ev.type);
+    }
+    if (ev.value == KEY_RELEASED) {
+     printf("released: ev@code %d | ev@type %d\n", ev.code, ev.type);
+    }
+   }
+  }
+
+  if (ev.code == KEY_ESC && ev.value == 1 && ms.modifiers[SHIFT]) {
+    printf("escaped \n");
+    running = 0;
+  }
 
   if (ev.type == EV_KEY) {
    switch (ev.value) {
     case (KEY_RELEASED): {
-     handle_modifiers(ev.value, ev.code, &ms);
+     if (handle_modifiers(ev.value, ev.code, &ms)) {
+      break;
+     }
+     recent_key = ev;
     } break;
     case(KEY_PRESSED): {
-     handle_modifiers(ev.value, ev.code, &ms);
+     if (handle_modifiers(ev.value, ev.code, &ms)) {
+      break;
+     }
+     recent_key = ev;
     } break;
     case(KEY_AUTOREPEAT): {
 
@@ -371,45 +436,6 @@ int main() {
       printf("Unhandled key value. What do?\n");
     } break;
    }
-  }
-  
-  // \033 is an octal escape.
-  printf("\033[2J\033[H");
-  printf("\033[0m");
-  printf("| Control: ");
-  if (ms.modifiers[CONTROL]) {
-   printf("\033[32m");
-   printf("█ ");
-  } else {
-   printf("\033[31m");
-   printf("░ ");
-  }
-
-  printf("\033[0m");
-  printf("| Alt: ");
-  if (ms.modifiers[ALT]) {
-   printf("\033[32m");
-   printf("█ ");
-  } else {
-   printf("\033[31m");
-   printf("░ ");
-  }
-
-  printf("\033[0m");
-  printf("| Shift: ");
-  if (ms.modifiers[SHIFT]) {
-   printf("\033[32m");
-   printf("█ ");
-  } else {
-   printf("\033[31m");
-   printf("░ ");
-  }
-  printf("\033[0m");
-  printf("|\n");
-
-  if (ev.code == KEY_ESC && ev.value == 1 && ms.modifiers[SHIFT]) {
-    printf("escaped \n");
-    running = 0;
   }
  }
 
