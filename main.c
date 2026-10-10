@@ -96,7 +96,7 @@ int handle_modifiers(unsigned short value, unsigned short code, struct modifier_
 }
 
 
-#define DRAW_TUI 0
+#define DRAW_TUI 1
 
 const char *path = "/run/user/1000/keyboardListener";
 
@@ -340,27 +340,49 @@ int main() {
   }
 
   {
-    int index = 0;
     client *cur = clients.head;
-    client *prev = 0;
 
     while (cur) {
-      printf("%d | %d | %p | %p\n", cur->pfd.revents, cur->pfd.fd, cur->next, cur->prev);
+
+      client *next = cur->next;
 
       int poll_result = poll(&cur->pfd, 1, 0); // poll current.
-      if (poll_result > 0) {
-        if (cur->pfd.revents & POLLRDHUP) {
-         // Needs to go to free list here.
-        } 
-      } else {
+      if (poll_result > 0 && (cur->pfd.revents & POLLRDHUP)) {
 
+      close(cur->pfd.fd);
+
+      if (cur->prev) {
+        cur->prev->next = cur->next;
+      } else {
+        clients.head = cur->next;
+        printf("%p\n", clients.head);
+      }
+      
+      if (cur->next) {
+        cur->next->prev = cur->prev;
+      }
+      
+      client *free_next = free_list.head;
+      client *free_prev = 0;
+
+      while (free_next) {
+        free_next = free_next->next;
+        free_prev = free_next->prev;
+      }
+      
+      if (free_prev) {
+        free_prev->next = cur;
+        cur->prev = free_prev;
+      } else {
+        free_list.head = cur;
       }
 
-      prev = cur;
-      cur = cur->next;
+      } else {
+      // Hey the current one is valid so send them some of that sweet sweet input.
+      }
+      
+      cur = next;
     }
-
-  }
   
   struct input_event ev = {0};
   read(fd, &ev, sizeof(struct input_event));
@@ -407,6 +429,8 @@ int main() {
   }
  }
 
+
+}
  if (DRAW_TUI) {
   printf("\x1b[?1049l");
  }
