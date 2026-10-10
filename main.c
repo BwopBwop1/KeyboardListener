@@ -97,6 +97,7 @@ int handle_modifiers(unsigned short value, unsigned short code, struct modifier_
 
 
 #define DRAW_TUI 1
+#define LISTEN 0
 
 const char *path = "/run/user/1000/keyboardListener";
 
@@ -265,6 +266,7 @@ int main() {
  pollingfd.fd = socket_fd;
  pollingfd.events = POLLIN;
 
+ #if LISTEN
  // TODO: Find keyboard from ID's.
  int fd = open("/dev/input/event3", O_RDONLY);
  if (fd == -1) {
@@ -286,18 +288,21 @@ int main() {
  }
  printf("File Descriptor: %d \n", fd);
 
+
+
+ int listener_fd = 0;
+ #endif
+
  struct modifier_storage ms;
  ms.modifiers[CONTROL] = 0;
  ms.modifiers[ALT] = 0;
  ms.modifiers[SHIFT] = 0;
-
- int running = 1;
-
- int listener_fd = 0;
- // Note: This isn't really needed for operations, only useful for rendering.
  struct input_event recent_key = {0};
 
- memoryArena clients_arena;
+ int running = 1;
+ // Note: This isn't really needed for operations, only useful for rendering.
+
+ memoryArena clients_arena = {0};
  clients_arena.size = sizeof(struct client) * MAX_CLIENTS;
  clients_arena.memory = malloc(clients_arena.size);
 
@@ -320,7 +325,9 @@ int main() {
      } else {
       printf("panic everything is wrong\n");
       close(socket_fd);
+      #if LISTEN
       close(fd);
+      #endif
       unlink(path);
       free(clients_arena.memory);
       running = 0;
@@ -355,19 +362,20 @@ int main() {
         cur->prev->next = cur->next;
       } else {
         clients.head = cur->next;
-        printf("%p\n", clients.head);
       }
       
       if (cur->next) {
         cur->next->prev = cur->prev;
       }
       
-      client *free_next = free_list.head;
-      client *free_prev = 0;
+       client *free_cur = free_list.head;
+       client *free_prev = NULL;
 
-      while (free_next) {
-        free_next = free_next->next;
-        free_prev = free_next->prev;
+      while (free_cur) {
+       client *free_next = free_cur->next;
+
+       free_prev = free_cur;
+       free_cur = free_next;
       }
       
       if (free_prev) {
@@ -383,22 +391,12 @@ int main() {
       
       cur = next;
     }
-  
+  }
+
+  #if LISTEN 
   struct input_event ev = {0};
   read(fd, &ev, sizeof(struct input_event));
 
-  if (DRAW_TUI) {
-   draw_tui(&ms, &recent_key, &clients);
-  } else {
-   if (ev.type == EV_KEY) {
-    if (ev.value == KEY_PRESSED) {
-     //printf("pressed: ev@code %d | ev@type %d\n", ev.code, ev.type);
-    }
-    if (ev.value == KEY_RELEASED) {
-     //printf("released: ev@code %d | ev@type %d\n", ev.code, ev.type);
-    }
-   }
-  }
 
   if (ev.code == KEY_ESC && ev.value == 1 && ms.modifiers[SHIFT]) {
     printf("escaped \n");
@@ -427,8 +425,21 @@ int main() {
     } break;
    }
   }
- }
-
+ 
+ #endif
+  
+  #if DRAW_TUI
+  draw_tui(&ms, &recent_key, &clients);
+  #else
+  if (ev.type == EV_KEY) {
+   if (ev.value == KEY_PRESSED) {
+     //printf("pressed: ev@code %d | ev@type %d\n", ev.code, ev.type);
+   }
+   if (ev.value == KEY_RELEASED) {
+     //printf("released: ev@code %d | ev@type %d\n", ev.code, ev.type);
+   }
+  }
+  #endif
 
 }
  if (DRAW_TUI) {
@@ -438,7 +449,11 @@ int main() {
  printf("we broke\n");
 
  close(socket_fd);
- close(fd);
+
+ #if LISTEN
+  close(fd);
+ #endif
+
  unlink(path);
  free(clients_arena.memory);
 
