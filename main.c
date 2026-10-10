@@ -13,7 +13,12 @@
  * of which another application can listen on. The daemon will do the keycode conversion to SDL automatically.
  * However later that could be toggled with a flag, who knows.
  */
+
+#define _GNU_SOURCE 1
+
 #include <stdio.h>
+#include <stdlib.h>
+#include <stdint.h>
 #include <fcntl.h>
 #include <unistd.h>
 #include <linux/input.h>
@@ -24,6 +29,9 @@
 #include <sys/poll.h>
 #include <sys/stat.h>
 #include <sys/time.h>
+
+#define SDL_HINT_MOUSE_FOCUS_CLICKTHROUGH "SDL_MOUSE_FOCUS_CLICKTHROUGH"
+
 /*
  * SDL scancode definitions - Used for converting platform key input to sdl key input
  *
@@ -38,7 +46,12 @@
 #define KEY_PRESSED 1
 #define KEY_AUTOREPEAT 2
 
-#define NUM_OF_MODIFIERS 6
+#define NUM_OF_MODIFIERS 3
+
+#define Kilobytes(number) ((number) * 1024ull)
+#define Megabytes(number) (Kilobytes(number) * 1024ull)
+#define Gigabytes(number) (Megabytes(number) * 1024ull)
+
 enum modifier_position {
  CONTROL,
  ALT,
@@ -46,13 +59,12 @@ enum modifier_position {
 };
 
 struct modifier_storage {
- int modifiers[3];
+ int modifiers[NUM_OF_MODIFIERS];
 };
 
 int handle_modifiers(unsigned short value, unsigned short code, struct modifier_storage *ms) {
 
  int result = 0;
-
  switch (code) {
    case KEY_LEFTCTRL: {
       ms->modifiers[CONTROL] = value;
@@ -83,10 +95,46 @@ int handle_modifiers(unsigned short value, unsigned short code, struct modifier_
  return result;
 }
 
-void draw_tui(struct modifier_storage *ms, struct input_event *ev, int client_fd) {
+
+#define DRAW_TUI 0
+
+const char *path = "/run/user/1000/keyboardListener";
+
+typedef struct memoryArena {
+ uint32_t size;
+ uint32_t used;
+
+ void *memory;
+} memoryArena;
+
+void *pushSize(memoryArena *arena, size_t size) {
+ uint8_t *result = 0;
+ if (arena->used + size < arena->size) {
+  result = (uint8_t *)arena->memory + arena->used;
+
+  arena->used += size;
+ }
+ return (void *)(result);
+}
+
+#define MAX_CLIENTS 64
+
+typedef struct client {
+ struct pollfd pfd;
+
+ struct client *next;
+ struct client *prev;
+} client;
+typedef struct client_list {
+ client *head;
+} client_list;
+
+void draw_tui(struct modifier_storage *ms, struct input_event *ev, client_list *list) {
   // \033 is an octal escape.
-  printf("\033[2J\033[H");
+  // TODO: I am become TUI master of text.
+  printf("\033[1;1H\033[2J");
   printf("\033[0m");
+
   printf("| Control: ");
   if (ms->modifiers[CONTROL]) {
     printf("\033[32m");
@@ -116,18 +164,61 @@ void draw_tui(struct modifier_storage *ms, struct input_event *ev, int client_fd
     printf("░ ");
   }
   printf("\033[0m");
-  printf("| Recent Valid | Key: %d | State %s | Client %d\n", ev->code, ev->value ? "Pressed" : "Released", client_fd);
+  printf("| Recent Valid | Key: %d | State %s | ", ev->code, ev->value ? "Pressed" : "Released");
+  printf("\n");
 
+  client *cur = list->head;
+  printf("| Clients | ");
+  while (cur) {
+   printf("\033[32m █ \033[0m");
+   cur = cur->next;
+  }
+  
+  printf("\n");
+  fflush(stdout);
 }
+// Returns 0 on success and 1 on failure.
+int newNode(memoryArena *arena, client_list *list, client_list *free_list, int fd, short int events) {
 
-#define DRAW_TUI 1
+ int result = 0;
 
-const char *path = "/run/user/1000/keyboardListener";
+ client *head = free_list->head;
+
+ client *cur = list->head;
+ client *prev = 0;
+ while (cur) {
+   prev = cur;
+   cur = cur->next;
+ }
+
+ if (!head) {
+  cur = pushSize(arena, sizeof(client));
+ } else {
+  cur = head;
+  free_list->head = head->next;
+ }
+ 
+ if (cur) {
+  cur->pfd.fd = fd;
+  cur->pfd.events = events;
+  if (prev) {
+    prev->next = cur;
+    cur->prev = prev;
+  } else {
+   list->head = cur;
+  }
+  result = 0;
+ } else {
+  result = 1;
+ }
+
+ return result;
+}
 
 int main() {
 
  remove(path);
-
+ 
  struct sockaddr_un sockaddr = { .sun_family = AF_UNIX };
  strcpy(sockaddr.sun_path, path);
 
@@ -205,10 +296,22 @@ int main() {
  int listener_fd = 0;
  // Note: This isn't really needed for operations, only useful for rendering.
  struct input_event recent_key = {0};
+
+ memoryArena clients_arena;
+ clients_arena.size = sizeof(struct client) * MAX_CLIENTS;
+ clients_arena.memory = malloc(clients_arena.size);
+
+ struct client_list clients = {0};
+ struct client_list free_list = {0};
+
+ if (DRAW_TUI) {
+  printf("\x1b[?1049h");
+ }
+
  while (running) {
 
   int poll_result = poll(&pollingfd, 1, 0);
-  if (poll_result > 0) { // We have some activity.
+  if (poll_result > 0) { 
    if (pollingfd.revents & POLLIN) {
     int accept_result = accept(socket_fd, NULL, NULL);
     if (accept_result == -1) {
@@ -219,35 +322,58 @@ int main() {
       close(socket_fd);
       close(fd);
       unlink(path);
+      free(clients_arena.memory);
       running = 0;
      }
     } else {
-     if (listener_fd == 0) {
-      listener_fd = accept_result;
+     // To free a client slot we would have to poll the other fd which
+     // Seems like more effort than I want to do right now.
+     if (newNode(&clients_arena, &clients, &free_list, accept_result, POLLRDHUP)) {
+      close(accept_result);
      }
     }
 
-    if (pollingfd.revents & POLLIN) {
-      printf("there is a revent connection to read\n");
-    }
    }
   } else if (poll_result == -1) {
    printf("there was some type of error\n");
    printf("but I don't want to check errno\n");
   }
 
+  {
+    int index = 0;
+    client *cur = clients.head;
+    client *prev = 0;
+
+    while (cur) {
+      printf("%d | %d | %p | %p\n", cur->pfd.revents, cur->pfd.fd, cur->next, cur->prev);
+
+      int poll_result = poll(&cur->pfd, 1, 0); // poll current.
+      if (poll_result > 0) {
+        if (cur->pfd.revents & POLLRDHUP) {
+         // Needs to go to free list here.
+        } 
+      } else {
+
+      }
+
+      prev = cur;
+      cur = cur->next;
+    }
+
+  }
+  
   struct input_event ev = {0};
   read(fd, &ev, sizeof(struct input_event));
-  
+
   if (DRAW_TUI) {
-   draw_tui(&ms, &recent_key, listener_fd);
+   draw_tui(&ms, &recent_key, &clients);
   } else {
    if (ev.type == EV_KEY) {
     if (ev.value == KEY_PRESSED) {
-     printf("pressed: ev@code %d | ev@type %d\n", ev.code, ev.type);
+     //printf("pressed: ev@code %d | ev@type %d\n", ev.code, ev.type);
     }
     if (ev.value == KEY_RELEASED) {
-     printf("released: ev@code %d | ev@type %d\n", ev.code, ev.type);
+     //printf("released: ev@code %d | ev@type %d\n", ev.code, ev.type);
     }
    }
   }
@@ -281,11 +407,16 @@ int main() {
   }
  }
 
+ if (DRAW_TUI) {
+  printf("\x1b[?1049l");
+ }
+
  printf("we broke\n");
 
  close(socket_fd);
  close(fd);
  unlink(path);
+ free(clients_arena.memory);
 
  return 1;
 }
