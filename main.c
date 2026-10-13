@@ -16,6 +16,8 @@
 
 #define _GNU_SOURCE 1
 
+#include <time.h>
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
@@ -92,12 +94,21 @@ typedef struct event {
  uint16_t modstate;
 } event;
 
+typedef struct tui_state {
+ int32_t events_read;
+ int32_t tui_time;
+ int32_t read_time;
+ int32_t read_amount;
+ int32_t send_time;
+ int32_t sent_amount;
+ int32_t process_loop_time;
+} tui_state;
 
 int32_t convertToSDLScanCode(uint16_t scancode);
 int16_t convertModiferState(struct modifier_storage * ms);
 int32_t newClient(memoryArena *arena, client_list *list, client_list *free_list, int32_t fd, int16_t events);
 
-void draw_tui(struct modifier_storage *ms, struct input_event *ev, client_list *list);
+void draw_tui(struct modifier_storage *ms, struct input_event *ev, client_list *list, tui_state* state);
 int32_t handle_modifiers(uint16_t value, uint16_t code, struct modifier_storage *ms);
 
 void *pushSize(memoryArena *arena, size_t size);
@@ -171,7 +182,9 @@ int32_t main() {
  int32_t listener_fd = 0;
 
  struct modifier_storage ms = {0};
+ // NOTE: This is all for TUI rendering.
  struct input_event recent_key = {0};
+ struct tui_state state = {0};
 
  int32_t running = 1;
  // Note: This isn't really needed for operations, only useful for rendering.
@@ -315,7 +328,8 @@ int32_t main() {
     }
   }
 
-  draw_tui(&ms, &recent_key, &clients);
+  draw_tui(&ms, &recent_key, &clients, &state);
+
   for (uint32_t i = 0; i < num_valid_events; i++) {
    printf("Type: %d | Scancode %d | Modstate %x", valid_events[i].type, valid_events[i].scancode, valid_events[i].modstate);
   }
@@ -372,7 +386,7 @@ int32_t newClient(memoryArena *arena, client_list *list, client_list *free_list,
  return result;
 }
 
-void draw_tui(struct modifier_storage *ms, struct input_event *ev, client_list *list) {
+void draw_tui(struct modifier_storage *ms, struct input_event *ev, client_list *list, tui_state* state) {
   // \033 is an octal escape.
   // TODO: I am become TUI master of text.
   printf("\033[1;1H\033[2J");
@@ -408,8 +422,9 @@ void draw_tui(struct modifier_storage *ms, struct input_event *ev, client_list *
   }
   printf("\033[0m");
   printf("| Recent Valid | Key: %d | State %s | ", ev->code, ev->value ? "Pressed" : "Released");
-  printf("\n");
 
+  printf("\033[1;2H");
+  
   client *cur = list->head;
   printf("| Clients | ");
   while (cur) {
@@ -417,7 +432,7 @@ void draw_tui(struct modifier_storage *ms, struct input_event *ev, client_list *
    cur = cur->next;
   }
   
-  printf("\n");
+  printf("\033[1;3H");
   fflush(stdout);
 }
 
