@@ -16,7 +16,7 @@
 
 #define _GNU_SOURCE 1
 
-#include <time.h>
+#include <x86intrin.h>
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -95,13 +95,13 @@ typedef struct event {
 } event;
 
 typedef struct tui_state {
- int32_t events_read;
- int32_t tui_time;
- int32_t read_time;
+ int64_t tui_cycle_count;
+ int64_t read_cycle_count;
  int32_t read_amount;
- int32_t send_time;
- int32_t sent_amount;
- int32_t process_loop_time;
+ int64_t send_cycle_count;
+ int32_t send_amount;
+ int32_t last_send_amount;
+ int64_t process_cycle_count;
 } tui_state;
 
 int32_t convertToSDLScanCode(uint16_t scancode);
@@ -202,6 +202,7 @@ int32_t main() {
  printf("\x1b[?1049h");
 
  while (running) {
+  uint64_t frame_start = __rdtsc(), frame_diff;
   memset(read_events, 0, read_events_size);
 
   int32_t accept_result = accept(socket_fd, NULL, NULL);
@@ -227,8 +228,12 @@ int32_t main() {
   struct event valid_events[MAX_READ_EVENTS];
   memset(valid_events, 0, sizeof(event) * MAX_READ_EVENTS);
 
+  { // Read scope.
+  uint64_t start = __rdtsc(), diff;
+
   if (read_bytes > 0) {
     int32_t amount_of_events = read_bytes / sizeof(struct input_event);
+    state.read_amount = amount_of_events;
     for (int32_t i = 0; i < amount_of_events; i++) {
 
       struct input_event ev = read_events[i];
@@ -277,63 +282,74 @@ int32_t main() {
 
     }
   } 
- 
-  {
-    client *cur = clients.head;
+  diff = __rdtsc() - start;
+  state.read_cycle_count = diff;
+  }
 
-    while (cur) {
+  { // Send Scope
+  uint64_t start = __rdtsc(), diff;
 
-      client *next = cur->next;
+  client *cur = clients.head;
 
-      int32_t poll_result = poll(&cur->pfd, 1, 0); // poll current.
-      if (poll_result > 0 && (cur->pfd.revents & POLLRDHUP)) {
+  while (cur) { 
+    client *next = cur->next;
 
-      close(cur->pfd.fd);
+    int32_t poll_result = poll(&cur->pfd, 1, 0); // poll current.
+    if (poll_result > 0 && (cur->pfd.revents & POLLRDHUP)) {
 
-      if (cur->prev) {
-        cur->prev->next = cur->next;
-      } else {
-        clients.head = cur->next;
-      }
-      
-      if (cur->next) {
-        cur->next->prev = cur->prev;
-      }
-      
-       client *free_cur = clients_free_list.head;
-       client *free_prev = NULL;
+    close(cur->pfd.fd);
 
-      while (free_cur) {
-       client *free_next = free_cur->next;
-
-       free_prev = free_cur;
-       free_cur = free_next;
-      }
-      
-      if (free_prev) {
-        free_prev->next = cur;
-        cur->prev = free_prev;
-      } else {
-        clients_free_list.head = cur;
-      }
-
-      } else {
-      // Hey the current one is valid so send them some of that sweet sweet input.
-       if (num_valid_events > 0) {
-        send(cur->pfd.fd, valid_events, sizeof(event) * num_valid_events, MSG_CONFIRM | MSG_DONTWAIT);
-       }
-      }
-      
-      cur = next;
+    if (cur->prev) {
+      cur->prev->next = cur->next;
+    } else {
+      clients.head = cur->next;
     }
+    
+    if (cur->next) {
+      cur->next->prev = cur->prev;
+    }
+    
+      client *free_cur = clients_free_list.head;
+      client *free_prev = NULL;
+
+    while (free_cur) {
+      client *free_next = free_cur->next;
+
+      free_prev = free_cur;
+      free_cur = free_next;
+    }
+    
+    if (free_prev) {
+      free_prev->next = cur;
+      cur->prev = free_prev;
+    } else {
+      clients_free_list.head = cur;
+    }
+
+    } else {
+    // Hey the current one is valid so send them some of that sweet sweet input.
+      if (num_valid_events > 0) {
+      send(cur->pfd.fd, valid_events, sizeof(event) * num_valid_events, MSG_DONTWAIT);
+      }
+    }
+    
+    cur = next;
+  }
+
+  diff = __rdtsc() - start;
+  state.send_cycle_count = diff;
+  state.send_amount = num_valid_events; // Is this needed?
+  if (num_valid_events > 0) {
+   state.last_send_amount = num_valid_events;
+  }
   }
 
   draw_tui(&ms, &recent_key, &clients, &state);
 
-  for (uint32_t i = 0; i < num_valid_events; i++) {
-   printf("Type: %d | Scancode %d | Modstate %x", valid_events[i].type, valid_events[i].scancode, valid_events[i].modstate);
-  }
+  frame_diff = __rdtsc() - frame_start;
+  state.process_cycle_count = frame_diff;
 }
+
  printf("\x1b[?1049l");
 
  printf("we broke\n");
@@ -387,6 +403,7 @@ int32_t newClient(memoryArena *arena, client_list *list, client_list *free_list,
 }
 
 void draw_tui(struct modifier_storage *ms, struct input_event *ev, client_list *list, tui_state* state) {
+  uint64_t start = __rdtsc(), diff;
   // \033 is an octal escape.
   // TODO: I am become TUI master of text.
   printf("\033[1;1H\033[2J");
@@ -423,7 +440,7 @@ void draw_tui(struct modifier_storage *ms, struct input_event *ev, client_list *
   printf("\033[0m");
   printf("| Recent Valid | Key: %d | State %s | ", ev->code, ev->value ? "Pressed" : "Released");
 
-  printf("\033[1;2H");
+  printf("\033[2;1H");
   
   client *cur = list->head;
   printf("| Clients | ");
@@ -432,8 +449,18 @@ void draw_tui(struct modifier_storage *ms, struct input_event *ev, client_list *
    cur = cur->next;
   }
   
-  printf("\033[1;3H");
+  printf("\033[3;1H");
+  printf("Read Cycle Count: %ld | Read Amount %d | Send Cycle Count: %ld | Send Amount %d | Last Send Amount %d", 
+         state->read_cycle_count, state->read_amount, state->send_cycle_count, state->send_amount, state->last_send_amount);
+
+  printf("\033[4;1H");
+  printf("| Process Loop Time %ld | Tui Time %ld", state->process_cycle_count, state->tui_cycle_count);
+  printf("\033[6;1H");
+
   fflush(stdout);
+
+  diff = __rdtsc() - start;
+  state->tui_cycle_count = diff;
 }
 
 int32_t handle_modifiers(unsigned short value, unsigned short code, struct modifier_storage *ms) {
