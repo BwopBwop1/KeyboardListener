@@ -264,7 +264,7 @@ int32_t main() {
           }
           recent_key = ev; // TUI rendering.
 
-          valid_events[num_valid_events].type = SDL_TYPE_KEY_UP;
+          valid_events[num_valid_events].type = SDL_TYPE_KEY_DOWN;
           valid_events[num_valid_events].scancode = convertToSDLScanCode(ev.code);
 
           valid_events[num_valid_events].modstate = convertModiferState(&ms);
@@ -290,6 +290,8 @@ int32_t main() {
   uint64_t start = __rdtsc(), diff;
 
   client *cur = clients.head;
+
+  draw_tui(&ms, &recent_key, &clients, &state);
 
   while (cur) { 
     client *next = cur->next;
@@ -329,7 +331,8 @@ int32_t main() {
     } else {
     // Hey the current one is valid so send them some of that sweet sweet input.
       if (num_valid_events > 0) {
-      send(cur->pfd.fd, valid_events, sizeof(event) * num_valid_events, MSG_DONTWAIT);
+       printf("sending");
+       send(cur->pfd.fd, valid_events, sizeof(event) * num_valid_events, MSG_DONTWAIT);
       }
     }
     
@@ -344,7 +347,6 @@ int32_t main() {
   }
   }
 
-  draw_tui(&ms, &recent_key, &clients, &state);
 
   frame_diff = __rdtsc() - frame_start;
   state.process_cycle_count = frame_diff;
