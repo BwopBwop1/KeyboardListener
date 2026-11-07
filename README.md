@@ -11,12 +11,9 @@ The reason this exist is because many abstraction libraries and/or applications 
  input without a lot of setup. 
  
  > [!WARNING]
-
  > This application is currently not intended for actual use.
-
  > At the moment, the server does not implement authentication, passphrase verification, or client
  > authorization. It simply forwards captured input events to a predefined socket path.
-
  > Anyone with access to that socket can receive the forwarded input events.
  > Do not use this application in environments where sensitive input could be exposed.
 
