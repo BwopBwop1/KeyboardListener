@@ -10,7 +10,7 @@ The reason this exist is because many abstraction libraries and/or applications 
  The intended use is that I can drop a client into any of my projects very quickly and get global
  input without a lot of setup. 
  
- > [!WARNING]
+ [!WARNING]
 
   This application is currently not intended for actual use.
 
