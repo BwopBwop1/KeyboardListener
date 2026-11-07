@@ -30,7 +30,7 @@ This currently Makes use of x86 intrinsics to track performance, so currently is
 
  The build script would look something like this.
  As I haven't gotten around to working on the other platform layers
- I haven't introduced CMake or a proper build system in as not to add unneeded complexity.
+ I haven't introduced CMake or a proper build system for currently unneeded complexity.
 
  ```
   gcc -o Test.out src/main.c 
