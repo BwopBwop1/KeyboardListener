@@ -10,15 +10,15 @@ The reason this exist is because many abstraction libraries and/or applications 
  The intended use is that I can drop a client into any of my projects very quickly and get global
  input without a lot of setup. 
  
- [!WARNING]
+ > [!WARNING]
 
-  This application is currently not intended for actual use.
+ > This application is currently not intended for actual use.
 
-  At the moment, the server does not implement authentication, passphrase verification, or client
-  authorization. It simply forwards captured input events to a predefined socket path.
+ > At the moment, the server does not implement authentication, passphrase verification, or client
+ > authorization. It simply forwards captured input events to a predefined socket path.
 
-  Anyone with access to that socket can receive the forwarded input events.
-  Do not use this application in environments where sensitive input could be exposed.
+ > Anyone with access to that socket can receive the forwarded input events.
+ > Do not use this application in environments where sensitive input could be exposed.
 
 This currently Makes use of x86 intrinsics to track performance, so currently is not compatible on arm based CPUs
 
